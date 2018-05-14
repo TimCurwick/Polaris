@@ -34,25 +34,37 @@ function New-DirectoryBrowser {
 
     Write-Debug "DirectoryBrowserPath: $DirectoryBrowserPath"
 
+    #  Function for converting bytes to whatever is reasonable
+    function Get-AbbreviatedSize ( [int64]$Size )
+        {
+        $P = [math]::Floor( [math]::Log10( $Size ) / [math]::Log10( 1024 ) )
+        $Base = $Size / [math]::Pow( 1024, $P )
+        If ( $Size -eq 0 ) { $Base = 0; $P = 0 }
+        ( "{0:N2} " -f $Base ) + ( 'B', 'KB', 'MB', 'GB', 'TB', 'PB', 'XB', 'ZB', 'YB' )[$P] + '&nbsp;'
+        }
+
     @"
 <html>
 <head>
 <title>$HeaderName</title>
 </head>
 <body>
-<h1>$HeaderName - $DirectoryBrowserPath</h1>
 <hr>
 $(if ($RequestedItem.FullName.TrimEnd([System.IO.Path]::DirectorySeparatorChar) -ne $RequestedItem.PSDrive.Root) { '<a href="./../">[To Parent Directory]</a><br><br>'})
 <table cellpadding="5">
 "@
     $Files = ($RequestedItem | Get-ChildItem)
     foreach ($File in $Files) {
-        $FileURL = "./" + ($File.PSChildName) -replace "\\", "/"
-        if ($File.PSIsContainer) { $FileUrl += "/"; $FileLength = "[dir]" } else { $FileLength = $File.Length }
+        $FileURL = $DirectoryBrowserPath.TrimEnd( '/' ) + '/' + $File.Name
+        if ($File.PSIsContainer)
+            { $FileUrl += "/"; $FileLength = "[dir]"; $AbbrSize = '' }
+        else
+            { $FileLength = $File.Length; $AbbrSize = Get-AbbreviatedSize -Size $FileLength }
         @"
 <tr>
 <td align="right">$($File.LastWriteTime)</td>
-<td align="right">$FileLength</td>
+<td align="right">$( '{0:N0}' -f $FileLength )</td>
+<td align="right">$AbbrSize</td>
 <td align="left"><a href="$FileURL">$($File.Name)</a></td>
 </tr>
 "@

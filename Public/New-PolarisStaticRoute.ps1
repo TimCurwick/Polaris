@@ -35,8 +35,11 @@ function New-PolarisStaticRoute {
         [string]
         $FolderPath = "./",
 
-        [bool]
-        $EnableDirectoryBrowser = $True,
+        [string[]]
+        $DefaultFile,
+
+        [switch]
+        $NoDirectoryBrowsing,
         
         [switch]
         $Force,
@@ -75,16 +78,41 @@ function New-PolarisStaticRoute {
              
             if ($RequestedItem.PSIsContainer) {
 
-                if ($EnableDirectoryBrowser) {
-                    $Content = New-DirectoryBrowser -RequestedItem $RequestedItem `
-                        -HeaderName "Polaris Static File Server" `
-                        -DirectoryBrowserPath $LocalPath `
+                #  If DefaultFile is specified
+                #    Look for matching default file
+                If ( $DefaultFile )
+                    {
 
-                    $Response.ContentType = "text/html"
-                    $Response.Send($Content)
-                }
-                else {
-                    throw [System.Management.Automation.ItemNotFoundException]'file not found'
+                    #  Find the path for the first DefaultFile that exists in the folder
+                    $DefaultPath = $DefaultFile |
+                        ForEach-Object { Join-Path -Path $RequestedItem -ChildPath $_ } |
+                        Where-Object { Test-Path -Path $_ } |
+                        Select-Object -First 1
+                
+                    #  If a DefaultFile was found
+                    #    Return default file
+                    If ( $DefaultPath )
+                        {
+                        $Response.SetStream( [System.IO.File]::OpenRead( $DefaultPath ) )
+                        $Response.ContentType = [PolarisResponse]::GetContentType($DefaultPath )
+                        }
+                    }
+
+                #  If no DefaultFile specified or found...
+                If ( -not $DefaultPath )
+                    {
+
+                    if ($EnableDirectoryBrowser) {
+                        $Content = New-DirectoryBrowser -RequestedItem $RequestedItem `
+                            -HeaderName "Polaris Static File Server" `
+                            -DirectoryBrowserPath $Request.Url `
+
+                        $Response.ContentType = "text/html"
+                        $Response.Send($Content)
+                    }
+                    else {
+                        throw [System.Management.Automation.ItemNotFoundException]'file not found'
+                    }
                 }
             }
             else {
@@ -114,7 +142,8 @@ function New-PolarisStaticRoute {
     # Inserting variables into scriptblock as hardcoded
     $Scriptblock = [scriptblock]::Create(
         "`$RoutePath = '$($RoutePath.TrimStart("/"))'`r`n" +
-        "`$EnableDirectoryBrowser = `$$EnableDirectoryBrowser`r`n" +
+        "`$EnableDirectoryBrowser = `$$( -not $NoDirectoryBrowsing )`r`n" +
+        "`$DefaultFile = '$( $DefaultFile -join ':' )'.Split( ':' )`r`n" +
         "`$NewDrive = '$NewDrive'`r`n" +
         $Scriptblock.ToString())
 

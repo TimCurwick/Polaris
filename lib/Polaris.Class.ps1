@@ -2,7 +2,7 @@ class Polaris {
 
     [int]$Port
     [System.Collections.Generic.List[PolarisMiddleWare]]$RouteMiddleWare = [System.Collections.Generic.List[PolarisMiddleWare]]::new()
-    [System.Collections.Generic.Dictionary[string, [System.Collections.Generic.Dictionary[string, scriptblock]]]]$ScriptblockRoutes = [System.Collections.Generic.Dictionary[string, [System.Collections.Generic.Dictionary[string, scriptblock]]]]::new()
+    [hashtable]$ScriptblockRoutes = @{}
     hidden [Action[string]]$Logger
     hidden [System.Net.HttpListener]$Listener
     hidden [bool]$StopServer = $False
@@ -57,18 +57,35 @@ class Polaris {
                 $Polaris.Log("Parsed Route: $Route")
                 $Polaris.Log("Request Method: $($RawRequest.HttpMethod)")
                 $Routes = $Polaris.ScriptblockRoutes
-                $MatchingRoute = $Routes.keys.Where( { $Route -match $_ })[0]
-                $MatchingMethod = $false
+###
+#                $MatchingRoute = $Routes.keys.Where( { $Route -match $_ })[0]
+                
+                $MatchingRoute = $Request.Method + ':' + [System.Web.HttpUtility]::UrlDecode( $Route )
+
+                If ( -not $Routes[$MatchingRoute] )
+                    {
+                    While ( $MatchingRoute )
+                        {
+                        If ( $MatchingRoute.EndsWith( ':/' ) )
+                            {
+                            $MatchingRoute = $False
+                            }
+                        Else
+                            {
+                            $MatchingRoute = $MatchingRoute.Substring( 0, $MatchingRoute.LastIndexOf( '/' ) ) -replace ':$', ':/'
+                            If ( $Routes[$MatchingRoute] )
+                                {
+                                break
+                                }
+                            }
+                        }
+                    }
 
                 if ($MatchingRoute) {
-                    $MatchingMethod = $Routes[$MatchingRoute].keys -contains $Request.Method
-                }
-
-                if ($MatchingRoute -and $MatchingMethod) {
                     try {
 
                         $InformationVariable += $Polaris.InvokeRoute(
-							$Routes[$MatchingRoute][$Request.Method],
+							$Routes[$MatchingRoute],
 							$Request,
 							$Response
 						)
@@ -82,10 +99,10 @@ class Polaris {
                         $Response.SetStatusCode(500)
                     }
                 }
-                elseif ($MatchingRoute) {
-                    $Response.Send("Method not allowed")
-                    $Response.SetStatusCode(405)
-                }
+#                elseif ($MatchingRoute) {
+#                    $Response.Send("Method not allowed")
+#                    $Response.SetStatusCode(405)
+#                }
                 else {
                     $Response.Send("Not found")
                     $Response.SetStatusCode(404)
@@ -154,15 +171,12 @@ class Polaris {
         [scriptblock]$Scriptblock
     ) {
         if ($null -eq $Scriptblock) {
-            throw [ArgumentNullException]::new("scriptBlock")
+            throw [ArgumentNullException]::new("Scriptblock")
         }
 
         [string]$SanitizedPath = [Polaris]::SanitizePath($Path)
 
-        if (-not $this.ScriptblockRoutes.ContainsKey($SanitizedPath)) {
-            $this.ScriptblockRoutes[$SanitizedPath] = [System.Collections.Generic.Dictionary[string, string]]::new()
-        }
-        $this.ScriptblockRoutes[$SanitizedPath][$Method] = $Scriptblock
+        $this.ScriptblockRoutes["$Method`:$SanitizedPath"] = $Scriptblock
     }
 
     RemoveRoute (
@@ -170,18 +184,15 @@ class Polaris {
         [string]$Method
     ) {
         if ($null -eq $Path) {
-            throw [ArgumentNullException]::new("path")
+            throw [ArgumentNullException]::new("Path")
         }
         if ($null -eq $Method) {
-            throw [ArgumentNullException]::new("method")
+            throw [ArgumentNullException]::new("Method")
         }
 
         [string]$SanitizedPath = [Polaris]::SanitizePath($Path)
 
-        $this.ScriptblockRoutes[$SanitizedPath].Remove($Method)
-        if ($this.ScriptblockRoutes[$SanitizedPath].Count -eq 0) {
-            $this.ScriptblockRoutes.Remove($SanitizedPath)
-        }
+        $this.ScriptblockRoutes.Remove("$Method`:$SanitizedPath")
     }
 
     static [string] SanitizePath([string]$Path){
@@ -323,8 +334,8 @@ class Polaris {
             $this.Logger($LogString)
         }
         catch {
-            Write-Host $_.Message
-            Write-Host $LogString
+#            Write-Host $_.Message
+#            Write-Host $LogString
         }
     }
 
@@ -336,10 +347,7 @@ class Polaris {
             $this.Logger = $Logger
         }
         else {
-            $this.Logger = {
-                param($LogItem)
-                Write-Host $LogItem
-            }
+            $this.Logger = {}
         }
 
     }
